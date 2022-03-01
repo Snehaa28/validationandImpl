@@ -1,0 +1,245 @@
+package com.albertsons.cartservice.services.implementation;
+
+import com.albertsons.cartservice.persistence.CartRepo;
+import com.albertsons.cartservice.resources.constants.CartConstants;
+import com.albertsons.cartservice.resources.model.AddItemResponse;
+import com.albertsons.cartservice.resources.model.Cart;
+import com.albertsons.cartservice.resources.model.Item;
+import com.albertsons.cartservice.resources.model.ItemInfo;
+import com.albertsons.cartservice.services.interfaces.CartService;
+import lombok.RequiredArgsConstructor;
+import org.apache.commons.lang3.StringUtils;
+import org.json.simple.JSONObject;
+import org.json.simple.parser.JSONParser;
+import org.json.simple.parser.ParseException;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestTemplate;
+
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.Optional;
+import java.util.stream.Collectors;
+
+@Service
+@RequiredArgsConstructor
+public class CartServiceImpl implements CartService {
+
+    private final RestTemplate restTemplate;
+
+    private final CartRepo cartRepo;
+
+    @Override
+    public AddItemResponse addItemToCart(String storeId, String guid, String app, ItemInfo itemInfo) {
+
+        AddItemResponse addItemResponse = null;
+        addItemResponse = validateAddItemRequest(storeId, guid, app, itemInfo);
+        if (addItemResponse == null) {
+            try {
+                Optional<Cart> cart = Optional.ofNullable(null); //cartRepo.findByItemIdAndStatus(guid, storeId, itemInfo.getItem_id(),
+                //"Active");
+                System.out.println(cartRepo.findAll());
+//                System.out.println(cartRepo.findAll().get(1).getStore_id());
+                if (!cart.isPresent()) {
+                    try {
+                        Optional<Cart> cartOne = cartRepo.findByGuidAndStoreId(guid, storeId);
+                        if (!cartOne.isPresent()) {
+                            Object obj = checkAppAndStore("", storeId, itemInfo);
+                            if (obj instanceof AddItemResponse) {
+                                addItemResponse = (AddItemResponse) obj;
+                            } else if (obj instanceof Item) {
+                                Item item = (Item) obj;
+                                Cart newCart = createNewCartData(guid, storeId, item);
+                                try {
+                                    System.out.println("new cart inserted" + newCart);
+//                                cartRepo.save(newCart);
+                                } catch (Exception e) {
+                                    addItemResponse = dbQueryErrorResponse();
+                                }
+                                addItemResponse = itemAddedSuccessfully();
+                            }
+                        } else {
+                            Cart cartToAdd = cartOne.get();
+                            ArrayList<Item> items = cartToAdd.getItems();
+                            int cartCount = items.stream().filter(i -> i.getBag_item().equals(true))
+                                    .collect(Collectors.toList()).size();
+                            if ((cartCount >= CartConstants.CART_LIMIT || itemInfo.getQuantity() > CartConstants.ITEM_LIMIT)
+                                    && !itemInfo.isBag_item()) {
+                                addItemResponse = itemLimitError();
+                            } else if (cartCount == 0) {
+                                if (!app.equals("3pl") && !getStoreHours(storeId)) {
+                                    addItemResponse = new AddItemResponse(CartConstants.ACK_ONE, CartConstants.ERROR_CODE,
+                                            CartConstants.MESSAGE_OUT_OF_OPERATION, CartConstants.OUT_OF_OPERATION_ERROR,
+                                            CartConstants.BACKEND_ERROR);
+                                }
+                            } else {
+                                Item item = prepareNewItem(itemInfo);
+                                    item.setAdded_time_stamp((double) new Date().getTime());
+                                    items.add(item);
+                                    cartToAdd.setItems(items);
+                                    cartToAdd.setTime_stamp((double) new Date().getTime());
+                                    try {
+                                        System.out.println("Item added to the existing cart");
+//                                cartRepo.save(cartToAdd);
+                                    } catch (Exception e) {
+                                        addItemResponse = dbQueryErrorResponse();
+                                    }
+                                    addItemResponse = itemAddedSuccessfully();
+                                }
+                        }
+                    } catch (Exception e) {
+                        addItemResponse = dbQueryErrorResponse();
+                    }
+                }
+                else {
+                    Cart cartToUpdate = cart.get();
+                    ArrayList<Item> itemsList = cartToUpdate.getItems();
+                    if (itemInfo.getQuantity() > CartConstants.ITEM_LIMIT && !itemInfo.isBag_item()) {
+                        addItemResponse = itemLimitError();
+                    }
+                    for (Item indexItem : itemsList) {
+                        if (indexItem.getItem_id().equals(itemInfo.getItem_id())) {
+                            Item itemtoUpdate = prepareNewItem(itemInfo);
+                            itemsList.set(itemsList.indexOf(indexItem), itemtoUpdate);
+                        }
+                    }
+                    cartToUpdate.setItems(itemsList);
+                    cartToUpdate.setTime_stamp((double) new Date().getTime());
+                    try {
+                        System.out.println("Existing item updated into the cart");
+//                    cartRepo.save(cartToUpdate);
+                    } catch (Exception e) {
+                        addItemResponse = dbQueryErrorResponse();
+                    }
+                    addItemResponse = itemUpdatedSuccessfully();
+                }
+            } catch (Exception e) {
+                addItemResponse = dbQueryErrorResponse();
+            }
+        } else {
+            return addItemResponse;
+        }
+
+        return addItemResponse;
+    }
+
+    private AddItemResponse itemLimitError() {
+        return new AddItemResponse(CartConstants.ACK_ONE, CartConstants.ERROR_CODE,
+                CartConstants.MESSAGE_ITEM_CART_ERROR, CartConstants.MAX_ITEM_ERROR, CartConstants.BACKEND_ERROR);
+    }
+
+    private AddItemResponse itemAddedSuccessfully() {
+        return new AddItemResponse(CartConstants.ACK_ZERO,
+                CartConstants.SUCCSEEFULLY_ADDED_CODE, CartConstants.MESSAGE_ITEM_ADDED_SUCCESSFULLY, "", "");
+    }
+
+    private AddItemResponse itemUpdatedSuccessfully() {
+        return new AddItemResponse(CartConstants.ACK_ZERO,
+                CartConstants.SUCCSEEFULLY_ADDED_CODE, CartConstants.MESSAGE_ITEM_ADDED_SUCCESSFULLY, "", "");
+    }
+
+    private Cart createNewCartData(String guid, String storeId, Item item) {
+        item.setAdded_time_stamp((double) new Date().getTime());
+        Cart newCart = new Cart();
+        newCart.setGuid(guid);
+        newCart.setTime_stamp((double) new Date().getTime());
+        ArrayList<Item> items = new ArrayList<Item>();
+        items.add(item);
+        newCart.setItems(items);
+        return newCart;
+    }
+
+    private Object checkAppAndStore(String app, String storeId, ItemInfo itemInfo) {
+        if (!app.equals("3pl") && !getStoreHours(storeId)) {
+            return new AddItemResponse(CartConstants.ACK_ONE, CartConstants.ERROR_CODE,
+                    CartConstants.MESSAGE_OUT_OF_OPERATION, CartConstants.OUT_OF_OPERATION_ERROR,
+                    CartConstants.BACKEND_ERROR);
+        } else if (itemInfo.getQuantity() > CartConstants.ITEM_LIMIT) {
+            return new AddItemResponse(CartConstants.ACK_ONE, CartConstants.ERROR_CODE,
+                    CartConstants.MESSAGE_ITEM_CART_ERROR, CartConstants.MAX_ITEM_ERROR, CartConstants.BACKEND_ERROR);
+        } else {
+            return prepareNewItem(itemInfo);
+        }
+    }
+
+    private AddItemResponse dbQueryErrorResponse() {
+        return new AddItemResponse(CartConstants.ACK_ONE, CartConstants.ERROR_CODE,
+                CartConstants.MESSAGE_GENERIC1, CartConstants.DB_ERROR, CartConstants.BACKEND_ERROR);
+    }
+
+    private AddItemResponse validateAddItemRequest(String storeId, String guid, String app, ItemInfo itemInfo) {
+        if (StringUtils.equalsIgnoreCase(app, "3pl")) {
+            CartConstants.CART_LIMIT = 500;
+            CartConstants.ITEM_LIMIT = 500;
+        }
+        getItemIdwithChecks(itemInfo);
+        System.out.println("Scan code replaced into item id" + itemInfo.getItem_id());
+        if (StringUtils.isEmpty(storeId) || (StringUtils.isEmpty(guid))) {
+            return new AddItemResponse(CartConstants.ACK_ONE, CartConstants.INVALID_REQUEST_CODE,
+                    CartConstants.MESSAGE_INVALID_REQUEST, CartConstants.SCAN_AND_PAY, CartConstants.GENERIC_ERROR);
+        } else if (StringUtils.equalsIgnoreCase(itemInfo.getUpc_type(), "plu") && !itemInfo.isBag_item()
+                && itemInfo.getQuantity() == 0) {
+            return new AddItemResponse(CartConstants.ACK_ZERO,
+                    CartConstants.ITEM_NOT_ADDED_QUANTITY_ZERO_CODE, CartConstants.MESSAGE_QUANTITY_ZERO,
+                    CartConstants.SCAN_AND_PAY, CartConstants.GENERIC_ERROR);
+        } else {
+            storeId = StringUtils.leftPad(storeId, 4, '0');
+            itemInfo.setBag_item(false);
+        }
+        return null;
+    }
+
+    private boolean getStoreHours(String storeId) {
+        boolean sngStoreHours = true;
+        URI uri;
+        try {
+            uri = new URI(CartConstants.RETAIL_BASE_URL + CartConstants.CHECK_STORE_HR + Integer.parseInt(storeId, 10));
+            HttpHeaders headers = new HttpHeaders();
+            headers.set("Ocp-Apim-Subscription-Key", CartConstants.RETAIL_OPERATIONS_SUBSCRIPTION_KEY);
+            HttpEntity<?> entity = new HttpEntity<>(headers);
+            String response = restTemplate.exchange(uri, HttpMethod.GET, entity, String.class).getBody();
+            JSONParser parser = new JSONParser();
+            JSONObject jobj = (JSONObject) parser.parse(response);
+            JSONObject dataObj = (JSONObject) parser.parse(jobj.get("data").toString());
+            return (boolean) dataObj.get("sngStoreHours");
+        } catch (NumberFormatException | URISyntaxException | ParseException e) {
+            return sngStoreHours;
+        }
+    }
+
+    private ItemInfo getItemIdwithChecks(ItemInfo itemInfo) {
+        if ((itemInfo.getUpc_type().equalsIgnoreCase("UPCA") || itemInfo.getUpc_type().equalsIgnoreCase("EAN13"))
+                && (((itemInfo.getScan_code().startsWith("2") && itemInfo.getScan_code().length() == 12))
+                || ((itemInfo.getScan_code().startsWith("02") && itemInfo.getScan_code().length() == 13)))) {
+            itemInfo.setItem_id(itemInfo.getScan_code());
+        }
+        return itemInfo;
+    }
+
+    private Item prepareNewItem(ItemInfo itemInfo) {
+        Item newItem = new Item();
+        newItem.setItem_id(itemInfo.getItem_id());
+        newItem.setUpc_type(itemInfo.getUpc_type().toLowerCase());
+        newItem.setStatus(CartConstants.ACTIVE);
+        newItem.setLast_updated_time_stamp((double) new Date().getTime());
+        newItem.setBag_item(getBagItem(itemInfo));
+        newItem.setScan_code(itemInfo.getScan_code());
+        newItem.setUpc_type(itemInfo.getUpc_type());
+        newItem.setQuantity(itemInfo.getQuantity());
+        return newItem;
+    }
+
+    private boolean getBagItem(ItemInfo itemInfo) {
+        if (itemInfo.getUpc_type().equalsIgnoreCase("PLU")
+                && Optional.ofNullable(itemInfo.getWeight()).orElse(0) != 0) {
+            itemInfo.setQuantity(0);
+            return true;
+        } else {
+            return false;
+        }
+    }
+}
