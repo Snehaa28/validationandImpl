@@ -29,230 +29,248 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class CartServiceImpl implements CartService {
 
-    private final RestTemplate restTemplate;
+	private final RestTemplate restTemplate;
 
-    private final CartRepo cartRepo;
+	private final CartRepo cartRepo;
 
-    @Override
-    public AddItemResponse addItemToCart(String storeId, String guid, String app, ItemInfo itemInfo) {
+	@Override
+	public AddItemResponse addItemToCart(String storeId, String guid, String app, ItemInfo itemInfo) {
 
-        AddItemResponse addItemResponse = null;
-        addItemResponse = validateAddItemRequest(storeId, guid, app, itemInfo);
-        if (addItemResponse == null) {
-            try {
-                Item existingItem = null;
-                Optional<Cart> cart = cartRepo.findByGuidAndStoreId(guid, storeId);
-                if(cart.isPresent()){
-                  Cart existingCart = cart.get();
-                    ArrayList<Item> itemsList = existingCart.getItems();
-                    for (Item cartItem : itemsList) {
-                        if (cartItem.getItem_id().equals(itemInfo.getItem_id()) && cartItem.getStatus().equals("active")) {
-                            existingItem = cartItem;
-                        }
-                    }
-                }
-                if (existingItem == null) {
-                    try {
-                        Optional<Cart> cartOne = cartRepo.findByGuidAndStoreId(guid, storeId);
-                        if (!cartOne.isPresent()) {
-                            Object obj = checkAppAndStore(app, storeId, itemInfo);
-                            if (obj instanceof AddItemResponse) {
-                                addItemResponse = (AddItemResponse) obj;
-                            } else if (obj instanceof Item) {
-                                Item item = (Item) obj;
-                                Cart newCart = createNewCartData(guid, storeId, item);
-                                try {
-                                    System.out.println("new cart inserted" + newCart);
-//                                cartRepo.save(newCart);
-                                } catch (Exception e) {
-                                    return dbQueryErrorResponse();
-                                }
-                                addItemResponse = itemAddedSuccessfully();
-                            }
-                        } else {
-                            Cart cartToAdd = cartOne.get();
-                            ArrayList<Item> items = cartToAdd.getItems();
-                            int cartCount = items.stream().filter(i -> i.getBag_item().equals(true))
-                                    .collect(Collectors.toList()).size();
-                            if (cartCount == 0) {
-                                if (!app.equals("3pl") && !getStoreHours(storeId)) {
-                                    return new AddItemResponse(CartConstants.ACK_ONE, CartConstants.ERROR_CODE,
-                                            CartConstants.MESSAGE_OUT_OF_OPERATION, CartConstants.OUT_OF_OPERATION_ERROR,
-                                            CartConstants.BACKEND_ERROR);
-                                }
-                            }
-                            if ((cartCount >= CartConstants.CART_LIMIT || itemInfo.getQuantity() > CartConstants.ITEM_LIMIT)
-                                    && !itemInfo.isBag_item()) {
-                                return itemLimitError();
-                            } else {
-                                Item item = prepareNewItem(itemInfo);
-                                item.setAdded_time_stamp((double) new Date().getTime());
-                                items.add(item);
-                                cartToAdd.setItems(items);
-                                cartToAdd.setTime_stamp((double) new Date().getTime());
-                                try {
-                                    System.out.println("Item added to the existing cart");
-//                                cartRepo.save(cartToAdd);
-                                } catch (Exception e) {
-                                    return dbQueryErrorResponse();
-                                }
-                                addItemResponse = itemAddedSuccessfully();
-                            }
-                        }
-                    } catch (Exception e) {
-                        return dbQueryErrorResponse();
-                    }
-                } else {
-                    Cart cartToUpdate = cart.get();
-                    ArrayList<Item> itemsList = cartToUpdate.getItems();
-                    if (itemInfo.getQuantity() > CartConstants.ITEM_LIMIT && !itemInfo.isBag_item()) {
-                        return itemLimitError();
-                    }
-                    for (Item indexItem : itemsList) {
-                        if (indexItem.getItem_id().equals(itemInfo.getItem_id())) {
-                            Item itemtoUpdate = prepareNewItem(itemInfo);
-                            itemsList.set(itemsList.indexOf(indexItem), itemtoUpdate);
-                        }
-                    }
-                    cartToUpdate.setItems(itemsList);
-                    cartToUpdate.setTime_stamp((double) new Date().getTime());
-                    try {
-                        System.out.println("Existing item updated into the cart");
+		AddItemResponse addItemResponse = null;
+		addItemResponse = validateAddItemRequest(storeId, guid, app, itemInfo);
+		Item existingItem = null;
+		if (addItemResponse == null) {
+			try {
+				Optional<Cart> cart = cartRepo.findByGuidAndStoreId(guid, storeId);
+				existingItem = isItemExist(itemInfo, cart);
+				if (existingItem == null) {
+					try {
+						Optional<Cart> cartOne = cartRepo.findByGuidAndStoreId(guid, storeId);
+						if (!cartOne.isPresent()) {
+							return createNewCart(storeId, guid, app, itemInfo);
+						} else {
+							return addItemToExistingCart(storeId, app, itemInfo, cartOne.get());
+						}
+					} catch (Exception e) {
+						return dbQueryErrorResponse();
+					}
+				} else {
+					return updateExistingItemInCart(itemInfo, cart.get());
+				}
+			} catch (Exception e) {
+				return dbQueryErrorResponse();
+			}
+		}
+		return addItemResponse;
+	}
+
+	private AddItemResponse updateExistingItemInCart(ItemInfo itemInfo, Cart cartToUpdate) {
+
+		ArrayList<Item> itemsList = cartToUpdate.getItems();
+		if (itemInfo.getQuantity() > CartConstants.ITEM_LIMIT && !itemInfo.isBag_item()) {
+			return itemLimitError();
+		}
+		for (Item indexItem : itemsList) {
+			if (indexItem.getItem_id().equals(itemInfo.getItem_id())) {
+				Item itemtoUpdate = prepareNewItem(itemInfo);
+				itemsList.set(itemsList.indexOf(indexItem), itemtoUpdate);
+			}
+		}
+		cartToUpdate.setItems(itemsList);
+		cartToUpdate.setTime_stamp((double) new Date().getTime());
+		try {
+			System.out.println("Existing item updated into the cart");
 //                    cartRepo.save(cartToUpdate);
-                    } catch (Exception e) {
-                        return dbQueryErrorResponse();
-                    }
-                    addItemResponse = itemUpdatedSuccessfully();
-                }
-            } catch (Exception e) {
-                return dbQueryErrorResponse();
-            }
-        }
-        return addItemResponse;
-    }
+			return itemUpdatedSuccessfully();
+		} catch (Exception e) {
+			return dbQueryErrorResponse();
+		}
+	}
 
-    private AddItemResponse itemLimitError() {
-        return new AddItemResponse(CartConstants.ACK_ONE, CartConstants.ERROR_CODE,
-                CartConstants.MESSAGE_ITEM_CART_ERROR, CartConstants.MAX_ITEM_ERROR, CartConstants.BACKEND_ERROR);
-    }
+	private AddItemResponse addItemToExistingCart(String storeId, String app, ItemInfo itemInfo, Cart cartToAdd) {
+		AddItemResponse addItemResponse = null;
+		ArrayList<Item> items = cartToAdd.getItems();
+		int cartCount = items.stream().filter(i -> i.getBag_item().equals(true)).collect(Collectors.toList()).size();
+		if (cartCount == 0) {
+			if (!app.equals("3pl") && !getStoreHours(storeId)) {
+				return new AddItemResponse(CartConstants.ACK_ONE, CartConstants.ERROR_CODE,
+						CartConstants.MESSAGE_OUT_OF_OPERATION, CartConstants.OUT_OF_OPERATION_ERROR,
+						CartConstants.BACKEND_ERROR);
+			}
+		}
+		if ((cartCount >= CartConstants.CART_LIMIT || itemInfo.getQuantity() > CartConstants.ITEM_LIMIT)
+				&& !itemInfo.isBag_item()) {
+			return itemLimitError();
+		} else {
+			Item item = prepareNewItem(itemInfo);
+			item.setAdded_time_stamp((double) new Date().getTime());
+			items.add(item);
+			cartToAdd.setItems(items);
+			cartToAdd.setTime_stamp((double) new Date().getTime());
+			try {
+				System.out.println("Item added to the existing cart");
+//                                cartRepo.save(cartToAdd);
+				return itemAddedSuccessfully();
+			} catch (Exception e) {
+				return dbQueryErrorResponse();
+			}
+		}
+	}
 
-    private AddItemResponse itemAddedSuccessfully() {
-        return new AddItemResponse(CartConstants.ACK_ZERO,
-                CartConstants.SUCCSEEFULLY_ADDED_CODE, CartConstants.MESSAGE_ITEM_ADDED_SUCCESSFULLY, "", "");
-    }
+	private AddItemResponse createNewCart(String storeId, String guid, String app, ItemInfo itemInfo) {
+		AddItemResponse addItemResponse = null;
+		Object obj = checkAppAndStore(app, storeId, itemInfo);
+		if (obj instanceof AddItemResponse) {
+			addItemResponse = (AddItemResponse) obj;
+		} else if (obj instanceof Item) {
+			Item item = (Item) obj;
+			Cart newCart = createNewCartData(guid, storeId, item);
+			try {
+				System.out.println("new cart inserted" + newCart);
+//                                cartRepo.save(newCart);
+				return itemAddedSuccessfully();
+			} catch (Exception e) {
+				return dbQueryErrorResponse();
+			}
+		}
+		return addItemResponse;
+	}
 
-    private AddItemResponse itemUpdatedSuccessfully() {
-        return new AddItemResponse(CartConstants.ACK_ZERO,
-                CartConstants.SUCCSEEFULLY_ADDED_CODE, CartConstants.MESSAGE_ITEM_UPDATED_SUCCESSFULLY, "", "");
-    }
+	private Item isItemExist(ItemInfo itemInfo, Optional<Cart> cart) {
+		Item existingItem = null;
+		if (cart.isPresent()) {
+			Cart existingCart = cart.get();
+			ArrayList<Item> itemsList = existingCart.getItems();
+			for (Item cartItem : itemsList) {
+				if (cartItem.getItem_id().equals(itemInfo.getItem_id()) && cartItem.getStatus().equals("active")) {
+					existingItem = cartItem;
+				}
+			}
+		}
+		return existingItem;
+	}
 
-    private Cart createNewCartData(String guid, String storeId, Item item) {
-        item.setAdded_time_stamp((double) new Date().getTime());
-        Cart newCart = new Cart();
-        newCart.setGuid(guid);
-        newCart.setTime_stamp((double) new Date().getTime());
-        ArrayList<Item> items = new ArrayList<Item>();
-        items.add(item);
-        newCart.setItems(items);
-        return newCart;
-    }
+	private AddItemResponse itemLimitError() {
+		return new AddItemResponse(CartConstants.ACK_ONE, CartConstants.ERROR_CODE,
+				CartConstants.MESSAGE_ITEM_CART_ERROR, CartConstants.MAX_ITEM_ERROR, CartConstants.BACKEND_ERROR);
+	}
 
-    private Object checkAppAndStore(String app, String storeId, ItemInfo itemInfo) {
-        if (!app.equals("3pl") && !getStoreHours(storeId)) {
-            return new AddItemResponse(CartConstants.ACK_ONE, CartConstants.ERROR_CODE,
-                    CartConstants.MESSAGE_OUT_OF_OPERATION, CartConstants.OUT_OF_OPERATION_ERROR,
-                    CartConstants.BACKEND_ERROR);
-        } else if (itemInfo.getQuantity() > CartConstants.ITEM_LIMIT) {
-            return new AddItemResponse(CartConstants.ACK_ONE, CartConstants.ERROR_CODE,
-                    CartConstants.MESSAGE_ITEM_CART_ERROR, CartConstants.MAX_ITEM_ERROR, CartConstants.BACKEND_ERROR);
-        } else {
-            return prepareNewItem(itemInfo);
-        }
-    }
+	private AddItemResponse itemAddedSuccessfully() {
+		return new AddItemResponse(CartConstants.ACK_ZERO, CartConstants.SUCCSEEFULLY_ADDED_CODE,
+				CartConstants.MESSAGE_ITEM_ADDED_SUCCESSFULLY, "", "");
+	}
 
-    private AddItemResponse dbQueryErrorResponse() {
-        return new AddItemResponse(CartConstants.ACK_ONE, CartConstants.ERROR_CODE,
-                CartConstants.MESSAGE_GENERIC1, CartConstants.DB_ERROR, CartConstants.BACKEND_ERROR);
-    }
+	private AddItemResponse itemUpdatedSuccessfully() {
+		return new AddItemResponse(CartConstants.ACK_ZERO, CartConstants.SUCCSEEFULLY_ADDED_CODE,
+				CartConstants.MESSAGE_ITEM_UPDATED_SUCCESSFULLY, "", "");
+	}
 
-    private AddItemResponse validateAddItemRequest(String storeId, String guid, String app, ItemInfo itemInfo) {
-        if (StringUtils.equalsIgnoreCase(app, "3pl")) {
-            CartConstants.CART_LIMIT = 500;
-            CartConstants.ITEM_LIMIT = 500;
-        }
-        getItemIdwithChecks(itemInfo);
-        System.out.println("Scan code replaced into item id" + itemInfo.getItem_id());
-        if (StringUtils.isEmpty(storeId) || (StringUtils.isEmpty(guid))) {
-            return new AddItemResponse(CartConstants.ACK_ONE, CartConstants.INVALID_REQUEST_CODE,
-                    CartConstants.MESSAGE_INVALID_REQUEST, CartConstants.SCAN_AND_PAY, CartConstants.GENERIC_ERROR);
-        } else if (StringUtils.equalsIgnoreCase(itemInfo.getUpc_type(), "plu") && !itemInfo.isBag_item()
-                && itemInfo.getQuantity() == 0) {
-            return new AddItemResponse(CartConstants.ACK_ZERO,
-                    CartConstants.ITEM_NOT_ADDED_QUANTITY_ZERO_CODE, CartConstants.MESSAGE_QUANTITY_ZERO,
-                    CartConstants.SCAN_AND_PAY, CartConstants.GENERIC_ERROR);
-        } else {
-            storeId = StringUtils.leftPad(storeId, 4, '0');
-            itemInfo.setBag_item(false);
-        }
-        return null;
-    }
+	private Cart createNewCartData(String guid, String storeId, Item item) {
+		item.setAdded_time_stamp((double) new Date().getTime());
+		Cart newCart = new Cart();
+		newCart.setGuid(guid);
+		newCart.setTime_stamp((double) new Date().getTime());
+		ArrayList<Item> items = new ArrayList<Item>();
+		items.add(item);
+		newCart.setItems(items);
+		return newCart;
+	}
 
-    private boolean getStoreHours(String storeId) {
-        boolean sngStoreHours = true;
-        URI uri;
-        try {
-            uri = new URI(CartConstants.RETAIL_BASE_URL + CartConstants.CHECK_STORE_HR + Integer.parseInt(storeId, 10));
-            HttpHeaders headers = new HttpHeaders();
-            headers.set("Ocp-Apim-Subscription-Key", CartConstants.RETAIL_OPERATIONS_SUBSCRIPTION_KEY);
-            HttpEntity<?> entity = new HttpEntity<>(headers);
-            String response = restTemplate.exchange(uri, HttpMethod.GET, entity, String.class).getBody();
-            JSONParser parser = new JSONParser();
-            JSONObject jobj = (JSONObject) parser.parse(response);
-            JSONObject dataObj = (JSONObject) parser.parse(jobj.get("data").toString());
-            return (boolean) dataObj.get("sngStoreHours");
-        } catch (NumberFormatException | URISyntaxException | ParseException e) {
-            return sngStoreHours;
-        }
-    }
+	private Object checkAppAndStore(String app, String storeId, ItemInfo itemInfo) {
+		if (!app.equals("3pl") && !getStoreHours(storeId)) {
+			return new AddItemResponse(CartConstants.ACK_ONE, CartConstants.ERROR_CODE,
+					CartConstants.MESSAGE_OUT_OF_OPERATION, CartConstants.OUT_OF_OPERATION_ERROR,
+					CartConstants.BACKEND_ERROR);
+		} else if (itemInfo.getQuantity() > CartConstants.ITEM_LIMIT) {
+			return new AddItemResponse(CartConstants.ACK_ONE, CartConstants.ERROR_CODE,
+					CartConstants.MESSAGE_ITEM_CART_ERROR, CartConstants.MAX_ITEM_ERROR, CartConstants.BACKEND_ERROR);
+		} else {
+			return prepareNewItem(itemInfo);
+		}
+	}
 
-    private ItemInfo getItemIdwithChecks(ItemInfo itemInfo) {
-        if ((itemInfo.getUpc_type().equalsIgnoreCase("UPCA") || itemInfo.getUpc_type().equalsIgnoreCase("EAN13"))
-                && (((itemInfo.getScan_code().startsWith("2") && itemInfo.getScan_code().length() == 12))
-                || ((itemInfo.getScan_code().startsWith("02") && itemInfo.getScan_code().length() == 13)))) {
-            itemInfo.setItem_id(itemInfo.getScan_code());
-        }
-        return itemInfo;
-    }
+	private AddItemResponse dbQueryErrorResponse() {
+		return new AddItemResponse(CartConstants.ACK_ONE, CartConstants.ERROR_CODE, CartConstants.MESSAGE_GENERIC1,
+				CartConstants.DB_ERROR, CartConstants.BACKEND_ERROR);
+	}
 
-    private Item prepareNewItem(ItemInfo itemInfo) {
-        Item newItem = new Item();
-        newItem.setItem_id(itemInfo.getItem_id());
-        newItem.setUpc_type(itemInfo.getUpc_type().toLowerCase());
-        newItem.setStatus(CartConstants.ACTIVE);
-        newItem.setLast_updated_time_stamp((double) new Date().getTime());
-        newItem.setBag_item(getBagItem(itemInfo));
-        newItem.setScan_code(itemInfo.getScan_code());
-        newItem.setUpc_type(itemInfo.getUpc_type());
-        newItem.setQuantity(itemInfo.getQuantity());
-        if(itemInfo.getClubPrice() != null){
-            newItem.setClubPrice(itemInfo.getClubPrice());
-        }
-        if(itemInfo.getJfuOffers() != null){
-            newItem.setJfuOffers(itemInfo.getJfuOffers());
-        }
-        if(itemInfo.getJfuOfferCount() != null){
-            newItem.setJfuOfferCount(itemInfo.getJfuOfferCount());
-        }
-        return newItem;
-    }
+	private AddItemResponse validateAddItemRequest(String storeId, String guid, String app, ItemInfo itemInfo) {
+		if (StringUtils.equalsIgnoreCase(app, "3pl")) {
+			CartConstants.CART_LIMIT = 500;
+			CartConstants.ITEM_LIMIT = 500;
+		}
+		getItemIdwithChecks(itemInfo);
+		System.out.println("Scan code replaced into item id" + itemInfo.getItem_id());
+		if (StringUtils.isEmpty(storeId) || (StringUtils.isEmpty(guid))) {
+			return new AddItemResponse(CartConstants.ACK_ONE, CartConstants.INVALID_REQUEST_CODE,
+					CartConstants.MESSAGE_INVALID_REQUEST, CartConstants.SCAN_AND_PAY, CartConstants.GENERIC_ERROR);
+		} else if (StringUtils.equalsIgnoreCase(itemInfo.getUpc_type(), "plu") && !itemInfo.isBag_item()
+				&& itemInfo.getQuantity() == 0) {
+			return new AddItemResponse(CartConstants.ACK_ZERO, CartConstants.ITEM_NOT_ADDED_QUANTITY_ZERO_CODE,
+					CartConstants.MESSAGE_QUANTITY_ZERO, CartConstants.SCAN_AND_PAY, CartConstants.GENERIC_ERROR);
+		} else {
+			storeId = StringUtils.leftPad(storeId, 4, '0');
+			itemInfo.setBag_item(false);
+		}
+		return null;
+	}
 
-    private boolean getBagItem(ItemInfo itemInfo) {
-        if (itemInfo.getUpc_type().equalsIgnoreCase("PLU")
-                && Optional.ofNullable(itemInfo.getWeight()).orElse(0) != 0) {
-            itemInfo.setQuantity(0);
-            return true;
-        } else {
-            return false;
-        }
-    }
+	private boolean getStoreHours(String storeId) {
+		boolean sngStoreHours = true;
+		URI uri;
+		try {
+			uri = new URI(CartConstants.RETAIL_BASE_URL + CartConstants.CHECK_STORE_HR + Integer.parseInt(storeId, 10));
+			HttpHeaders headers = new HttpHeaders();
+			headers.set("Ocp-Apim-Subscription-Key", CartConstants.RETAIL_OPERATIONS_SUBSCRIPTION_KEY);
+			HttpEntity<?> entity = new HttpEntity<>(headers);
+			String response = restTemplate.exchange(uri, HttpMethod.GET, entity, String.class).getBody();
+			JSONParser parser = new JSONParser();
+			JSONObject jobj = (JSONObject) parser.parse(response);
+			JSONObject dataObj = (JSONObject) parser.parse(jobj.get("data").toString());
+			return (boolean) dataObj.get("sngStoreHours");
+		} catch (NumberFormatException | URISyntaxException | ParseException e) {
+			return sngStoreHours;
+		}
+	}
+
+	private ItemInfo getItemIdwithChecks(ItemInfo itemInfo) {
+		if ((itemInfo.getUpc_type().equalsIgnoreCase("UPCA") || itemInfo.getUpc_type().equalsIgnoreCase("EAN13"))
+				&& (((itemInfo.getScan_code().startsWith("2") && itemInfo.getScan_code().length() == 12))
+						|| ((itemInfo.getScan_code().startsWith("02") && itemInfo.getScan_code().length() == 13)))) {
+			itemInfo.setItem_id(itemInfo.getScan_code());
+		}
+		return itemInfo;
+	}
+
+	private Item prepareNewItem(ItemInfo itemInfo) {
+		Item newItem = new Item();
+		newItem.setItem_id(itemInfo.getItem_id());
+		newItem.setUpc_type(itemInfo.getUpc_type().toLowerCase());
+		newItem.setStatus(CartConstants.ACTIVE);
+		newItem.setLast_updated_time_stamp((double) new Date().getTime());
+		newItem.setBag_item(getBagItem(itemInfo));
+		newItem.setScan_code(itemInfo.getScan_code());
+		newItem.setUpc_type(itemInfo.getUpc_type());
+		newItem.setQuantity(itemInfo.getQuantity());
+		if (itemInfo.getClubPrice() != null) {
+			newItem.setClubPrice(itemInfo.getClubPrice());
+		}
+		if (itemInfo.getJfuOffers() != null) {
+			newItem.setJfuOffers(itemInfo.getJfuOffers());
+		}
+		if (itemInfo.getJfuOfferCount() != null) {
+			newItem.setJfuOfferCount(itemInfo.getJfuOfferCount());
+		}
+		return newItem;
+	}
+
+	private boolean getBagItem(ItemInfo itemInfo) {
+		if (itemInfo.getUpc_type().equalsIgnoreCase("PLU")
+				&& Optional.ofNullable(itemInfo.getWeight()).orElse(0) != 0) {
+			itemInfo.setQuantity(0);
+			return true;
+		} else {
+			return false;
+		}
+	}
 }
