@@ -1,0 +1,420 @@
+package com.albertsons.itemlookup.services.implementation;
+
+import com.albertsons.itemlookup.exceptions.ItemNotFoundException;
+import com.albertsons.itemlookup.gateway.IJ4UGateway;
+import com.albertsons.itemlookup.gateway.J4UGateway;
+import com.albertsons.itemlookup.persistence.ItemLookupRepo;
+import com.albertsons.itemlookup.resources.mapper.CatalogMapper;
+import com.albertsons.itemlookup.resources.model.*;
+import com.albertsons.itemlookup.services.interfaces.AttachOffersService;
+import com.albertsons.itemlookup.services.interfaces.BusinessUtilsService;
+import com.albertsons.itemlookup.services.interfaces.ClubPriceService;
+import com.albertsons.itemlookup.services.interfaces.ItemLookupService;
+import com.albertsons.itemlookup.services.persistence.ItemAccess;
+import com.albertsons.itemlookup.services.persistence.MasterCatalogAccess;
+import com.albertsons.itemlookup.services.persistence.StoreCatalogAccess;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.Before;
+import org.junit.Test;
+import org.mockito.Mockito;
+import org.springframework.test.util.ReflectionTestUtils;
+
+import java.io.IOException;
+import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.mock;
+
+public class ItemLookupServiceImplTest {
+
+    private ItemLookupService itemLookupService;
+    private ItemResponse itemResponse;
+    private MasterCatalog masterCatalog;
+    private StoreCatalog storeCatalog;
+    private BusinessUtilsService businessUtilsService;
+    private ClubPriceService clubPriceService;
+    private ClubPrice clubPrice;
+    private CatalogMapper catalogMapper;
+    private ItemLookupServiceImpl itemLookupServiceImpl;
+    private MasterCatalogAccess masterCatalogAccess;
+    private StoreCatalogAccess storeCatalogAccess;
+    private ItemAccess itemAccess;
+    private ObjectMapper objectMapper;
+    private ItemLookupRepo itemLookupRepo;
+    private Item item;
+    private Catalog catalog;
+    private List<ClubPricesResponse> clubPriceList;
+    private IJ4UGateway j4UGateway;
+    private AttachOffersService attachOffersService;
+    private ClubOffer clubOffer;
+
+    private static final String UPC_TYPE_PLU = "PLU";
+    private static final String ITEM_ID = "0000000005400";
+    private static final String STORE_ID = "9870";
+    private static final String SCAN_CODE = "0022477400000";
+    private static final String CLIENT_ID = "snp";
+    private static final Double SELL_PRICE = 1.0D;
+    private static final String UPC_TYPE_BLANK = "";
+
+    @Before
+    public void init() {
+        j4UGateway = mock(J4UGateway.class);
+        attachOffersService = mock(AttachOffersService.class);
+        catalogMapper = new CatalogMapper();
+        itemLookupServiceImpl = new ItemLookupServiceImpl();
+        itemLookupService = mock(ItemLookupService.class);
+        businessUtilsService = mock(BusinessUtilsService.class);
+        itemResponse = mock(ItemResponse.class);
+        item = mock(Item.class);
+        storeCatalog = mock(StoreCatalog.class);
+        masterCatalog = mock(MasterCatalog.class);
+        catalog = mock(Catalog.class);
+        clubPrice = mock(ClubPrice.class);
+        itemAccess = mock(ItemAccess.class);
+        masterCatalogAccess = mock(MasterCatalogAccess.class);
+        storeCatalogAccess = mock(StoreCatalogAccess.class);
+        objectMapper = mock(ObjectMapper.class);
+        itemLookupRepo = mock(ItemLookupRepo.class);
+        clubPriceService = mock(ClubPriceService.class);
+        ReflectionTestUtils.setField(itemLookupServiceImpl, "clubPriceService", clubPriceService);
+        ReflectionTestUtils.setField(itemLookupServiceImpl, "j4UGateway", j4UGateway);
+        ReflectionTestUtils.setField(itemLookupServiceImpl, "itemResponse", itemResponse);
+        ReflectionTestUtils.setField(itemLookupServiceImpl, "businessUtilsService", businessUtilsService);
+        ReflectionTestUtils.setField(itemLookupServiceImpl, "catalogMapper", catalogMapper);
+        ReflectionTestUtils.setField(itemAccess, "itemLookupRepo", itemLookupRepo);
+        ReflectionTestUtils.setField(itemLookupServiceImpl, "itemAccess", itemAccess);
+        ReflectionTestUtils.setField(itemLookupServiceImpl, "masterCatalogAccess", masterCatalogAccess);
+        ReflectionTestUtils.setField(itemLookupServiceImpl, "storeCatalogAccess", storeCatalogAccess);
+        ReflectionTestUtils.setField(itemLookupServiceImpl, "objectMapper", objectMapper);
+        ReflectionTestUtils.setField(itemLookupServiceImpl, "attachOffersService", attachOffersService);
+
+    }
+
+    @Test
+    public void testGetClubPrice() {
+        Mockito.when(clubPriceService.getClubPriceData(ITEM_ID, STORE_ID)).thenReturn(clubPriceList);
+        assertEquals(clubPriceList, itemLookupServiceImpl.getClubPrice(ITEM_ID, STORE_ID));
+    }
+
+    @Test
+    public void testGetCatalogData() {
+        Mockito.when(masterCatalogAccess.findStaticItem(ITEM_ID)).thenReturn(null);
+        Mockito.when(storeCatalogAccess.findDynamicItem("12", STORE_ID)).thenReturn(null);
+        assertThrows(ItemNotFoundException.class, () -> itemLookupServiceImpl.getCatalogData(ITEM_ID, STORE_ID));
+    }
+
+    @Test
+    public void testGetItemToCatalogData() {
+        Mockito.when(itemAccess.findItem(ITEM_ID, STORE_ID)).thenReturn(null);
+        assertThrows(ItemNotFoundException.class, () -> itemLookupServiceImpl.getItemToCatalogData(ITEM_ID, STORE_ID));
+    }
+
+    @Test
+    public void testGetMasterCatalogData() {
+        Mockito.when(masterCatalogAccess.findStaticItem(ITEM_ID)).thenReturn(masterCatalog);
+        MasterCatalog actualMasterCatalog = masterCatalogAccess.findStaticItem(ITEM_ID);
+        assertEquals(masterCatalog, actualMasterCatalog);
+    }
+
+    @Test
+    public void testGetStoreCatalogData() {
+        Mockito.when(storeCatalogAccess.findDynamicItem(ITEM_ID, STORE_ID)).thenReturn(storeCatalog);
+        StoreCatalog actualStoreCatalog = storeCatalogAccess.findDynamicItem(ITEM_ID, STORE_ID);
+        assertEquals(storeCatalog, actualStoreCatalog);
+    }
+
+    @Test
+    public void testGetItemData() throws ItemNotFoundException {
+        Mockito.when(itemAccess.findItem(ITEM_ID, STORE_ID)).thenReturn(item);
+        Item actualItem = itemAccess.findItem(ITEM_ID, STORE_ID);
+        assertEquals(item, actualItem);
+    }
+
+    @Test
+    public void testCheckPluMap() {
+        assertEquals(SCAN_CODE, itemLookupServiceImpl.checkPluMap("24774"));
+    }
+
+    @Test
+    public void testGetItemCatalogData() throws ItemNotFoundException {
+        Mockito.when(itemAccess.findItem(ITEM_ID, STORE_ID)).thenReturn(item);
+        Catalog catalog = itemLookupServiceImpl.getItemToCatalogData(ITEM_ID, STORE_ID);
+        assertNotNull(catalog);
+    }
+
+    @Test
+    public void testGetCatalog() throws ItemNotFoundException {
+        Mockito.when(masterCatalogAccess.findStaticItem(ITEM_ID)).thenReturn(masterCatalog);
+        Mockito.when(storeCatalogAccess.findDynamicItem(ITEM_ID, STORE_ID)).thenReturn(storeCatalog);
+        Catalog catalog = itemLookupServiceImpl.getCatalogData(ITEM_ID, STORE_ID);
+        assertNotNull(catalog);
+    }
+
+    @Test
+    public void testGetCatalogResponse() {
+        catalog = Catalog.builder()
+                .sell_price(1.0)
+                .scan_code(SCAN_CODE)
+                .pos_description("SQUASH MIXED ORG")
+                .ext_description("ORGANIC SQUASH MIXED BIN")
+                .bpn_no("184710668")
+                .build();
+        itemLookupServiceImpl.getCatalogResponse(catalog, ITEM_ID, CLIENT_ID);
+        assertEquals(SELL_PRICE, catalog.getSell_price());
+    }
+
+    @Test
+    public void testProcessRequest() throws IOException, ItemNotFoundException {
+        Mockito.when(itemAccess.findItem(ITEM_ID, STORE_ID)).thenReturn(item);
+        Mockito.when(masterCatalogAccess.findStaticItem(ITEM_ID)).thenReturn(masterCatalog);
+        Mockito.when(storeCatalogAccess.findDynamicItem(ITEM_ID, STORE_ID)).thenReturn(storeCatalog);
+        Mockito.when(businessUtilsService.getUpcType(ITEM_ID)).thenReturn(UPC_TYPE_PLU);
+        Mockito.when(businessUtilsService.getScanCodeNew(UPC_TYPE_PLU, ITEM_ID)).thenReturn(ITEM_ID);
+        Mockito.when(businessUtilsService.getSellPrice(UPC_TYPE_PLU, ITEM_ID)).thenReturn(SELL_PRICE);
+        ItemResponse actualItemResponse = itemLookupServiceImpl.processRequest(ITEM_ID, STORE_ID, UPC_TYPE_BLANK, CLIENT_ID);
+        assertEquals(itemResponse, actualItemResponse);
+    }
+}==============================================
+
+package com.albertsons.itemlookup.gateway;
+
+import com.albertsons.itemlookup.resources.model.J4uOffers;
+import org.junit.Before;
+import org.junit.Test;
+import org.mockito.Mockito;
+import org.springframework.boot.test.web.client.TestRestTemplateExtensionsKt;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.ResponseEntity;
+import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.web.client.RestClientException;
+import org.springframework.web.client.RestTemplate;
+
+import java.util.Arrays;
+import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
+
+public class J4UGatewayTest {
+
+    private J4UGateway j4UGateway;
+    private RestTemplate restTemplate;
+    private J4uOffers j4uOffer;
+    private HttpEntity mockHttpEntity;
+    private ResponseEntity mockResponseEntity;
+    private static final String J4U_HOST = "http://localhost:8888";
+    private static final String J4U_URI = "/offer";
+
+    @Before
+    public void init() {
+        j4UGateway = spy(new J4UGateway());
+        restTemplate = mock(RestTemplate.class);
+        ReflectionTestUtils.setField(j4UGateway, "restTemplate", restTemplate);
+        ReflectionTestUtils.setField(j4UGateway, "j4uHost", J4U_HOST);
+        ReflectionTestUtils.setField(j4UGateway, "j4uUri", J4U_URI);
+        j4uOffer = mock(J4uOffers.class);
+        mockHttpEntity = mock(HttpEntity.class);
+        mockResponseEntity = mock(ResponseEntity.class);
+    }
+
+    @Test
+    public void getHeaders() {
+        HttpHeaders headers1 = j4UGateway.getHeaders("00000000005609", "5096", "oktaToken");
+        assertEquals(6, headers1.size());
+        HttpHeaders headers2 = j4UGateway.getHeaders("00000000052013", "8096", null);
+        assertEquals(1, headers2.size());
+    }
+
+    @Test
+    public void getJ4uCoupon() {
+        String resourceUrl;
+        resourceUrl= J4U_HOST + J4U_URI;
+        List<J4uOffers> j4uOffers = Arrays.asList(j4uOffer);
+        Mockito.doReturn(mockHttpEntity).when(j4UGateway).getEntity(any(HttpHeaders.class));
+        when(mockResponseEntity.getBody()).thenReturn(j4uOffers);
+        j4UGateway.getEntity(any(HttpHeaders.class));
+        when(restTemplate.exchange(resourceUrl, HttpMethod.GET, mockHttpEntity, List.class)).thenReturn(mockResponseEntity);
+        assertEquals(j4uOffers, j4UGateway.getJ4UCoupon("00000000005609", "5096", "oktaToken"));
+    }
+
+}=========================================
+
+package com.albertsons.itemlookup.controller;
+
+
+import com.albertsons.itemlookup.exceptions.ItemNotFoundException;
+import com.albertsons.itemlookup.exceptions.ResourceNotFoundException;
+import com.albertsons.itemlookup.resources.model.Catalog;
+import com.albertsons.itemlookup.resources.model.Item;
+import com.albertsons.itemlookup.resources.model.ItemResponse;
+import com.albertsons.itemlookup.services.implementation.ItemLookupServiceImpl;
+import com.albertsons.itemlookup.services.interfaces.ItemLookupService;
+import org.apache.commons.lang.StringUtils;
+import org.junit.Before;
+import org.junit.Test;
+import org.mockito.InjectMocks;
+import org.mockito.Mockito;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.test.util.ReflectionTestUtils;
+
+import java.io.IOException;
+
+import static org.junit.Assert.*;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.mock;
+
+
+public class ItemLookupControllerTest {
+
+    @Autowired
+    private ItemLookupService itemLookupService;
+
+    @InjectMocks
+    private ItemLookupController itemLookupController;
+
+    private ItemResponse mockItemResponse;
+    private Item item;
+    private Catalog catalog;
+    private static final String ITEM_ID = "0000000005409";
+    private static final String STORE_ID = "9879";
+    private static final String CLIENT_ID = "x-swy-client-id";
+    private static final String ZERO = "0";
+    private static final String DEPT = "306";
+    private static final String SNP3PL = "snp3pl";
+    private static final String UPC_TYPE = StringUtils.EMPTY;
+
+
+    @Before
+    public void init() {
+        itemLookupController = new ItemLookupController();
+        itemLookupService = mock(ItemLookupServiceImpl.class);
+        mockItemResponse = mock(ItemResponse.class);
+        item = mock(Item.class);
+        catalog = mock(Catalog.class);
+        ReflectionTestUtils.setField(itemLookupController, "itemLookupService", itemLookupService);
+    }
+
+    @Test
+    public void getItem() throws Exception {
+        Mockito.when(itemLookupService.processRequest(ITEM_ID, STORE_ID, UPC_TYPE,CLIENT_ID)).thenReturn(mockItemResponse);
+        Mockito.when(mockItemResponse.getAck()).thenReturn(ZERO);
+        Mockito.when(item.getItemId()).thenReturn(ITEM_ID);
+        Mockito.when(item.getDept()).thenReturn(DEPT);
+        ItemResponse mockItem = itemLookupController.getItem(ITEM_ID, STORE_ID, CLIENT_ID, StringUtils.EMPTY, StringUtils.EMPTY);
+        assertEquals(ZERO, mockItem.getAck());
+        assertEquals(ITEM_ID, item.getItemId());
+        assertEquals(mockItemResponse, mockItem);
+        assertEquals(DEPT, item.getDept());
+    }
+
+    @Test(expected = ResourceNotFoundException.class)
+    public void getItemWithException() throws ResourceNotFoundException, IOException, ItemNotFoundException {
+        Mockito.when(itemLookupService.processRequest(ITEM_ID, STORE_ID, UPC_TYPE,CLIENT_ID)).thenReturn(mockItemResponse);
+        Mockito.when(mockItemResponse.getAck()).thenReturn(ZERO);
+        ItemResponse mockItem = itemLookupController.getItem(ITEM_ID, StringUtils.EMPTY, CLIENT_ID, StringUtils.EMPTY, StringUtils.EMPTY);
+        assertEquals(mockItemResponse, mockItem);
+        assertTrue(STORE_ID.isEmpty());
+        assertTrue(ITEM_ID.isEmpty());
+        assertNotEquals(CLIENT_ID, SNP3PL);
+        assertThrows(ResourceNotFoundException.class, () -> itemLookupController.getItem(ITEM_ID, STORE_ID, CLIENT_ID, StringUtils.EMPTY, StringUtils.EMPTY));
+    }
+}==========================
+
+Integration testing:
+---------------------
+
+package com.albertsons.itemlookup.integration;
+
+
+import com.albertsons.itemlookup.configurations.WireMockInitializer;
+import com.albertsons.itemlookup.controller.ItemLookupController;
+import com.albertsons.itemlookup.gateway.J4UGateway;
+import com.github.tomakehurst.wiremock.WireMockServer;
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.test.context.ContextConfiguration;
+import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.junit4.SpringRunner;
+import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
+import org.springframework.test.web.servlet.result.MockMvcResultMatchers;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.context.WebApplicationContext;
+
+import java.util.List;
+
+import static com.github.tomakehurst.wiremock.client.WireMock.*;
+import static org.mockito.Mockito.mock;
+import static org.springframework.test.web.servlet.result.MockMvcResultHandlers.print;
+
+
+@SpringBootTest
+@TestPropertySource(locations = "classpath:application-test.properties")
+@ContextConfiguration(initializers = WireMockInitializer.class)
+@RunWith(SpringRunner.class)
+@AutoConfigureMockMvc
+public class ItemLookupIT {
+
+    @Value("${j4u.host}")
+    private String j4uHost;
+    @Value("${j4u.uri}")
+    private String j4uUri;
+    @Autowired
+    private WebApplicationContext webApplicationContext;
+
+    @Autowired
+    private WireMockServer wireMockServer;
+
+    @Autowired
+    private ItemLookupController itemLookupController;
+
+    private J4UGateway j4UGateway;
+    private ResponseEntity<List> responseEntity;
+
+    private MockMvc mockMvc;
+    private static final String CLIENT_ID = "x-swy-client-id";
+    private static final String ITEM_LOOKUP_QUERY_STRING = "/itemLookup?scan_code=05409&storeid=9879";
+
+    @Before
+    public void init() {
+        mockMvc = MockMvcBuilders.webAppContextSetup(webApplicationContext).build();
+        itemLookupController = new ItemLookupController();
+        j4UGateway = new J4UGateway();
+        responseEntity = mock(ResponseEntity.class);
+        ReflectionTestUtils.setField(j4UGateway, "j4uUri", j4uUri);
+        ReflectionTestUtils.setField(j4UGateway, "j4uHost", j4uHost);
+    }
+
+    @Test
+    public void getItemWithJ4UOffers() throws Exception {
+        wireMockServer.stubFor(get(urlPathMatching("/offer")).willReturn(aResponse().withStatus(200)
+                .withHeader("Content-Type", "application/json").withBodyFile("j4uOffers.json")));
+        HttpHeaders httpHeaders = new HttpHeaders();
+        httpHeaders.set("clientID", CLIENT_ID);
+        mockMvc.perform(MockMvcRequestBuilders
+                        .get(ITEM_LOOKUP_QUERY_STRING)
+                        .headers(httpHeaders)
+                        .accept(MediaType.APPLICATION_JSON))
+                .andDo(print())
+                .andExpect(MockMvcResultMatchers.status().isOk());
+    }
+
+    @After
+    public void after() {
+        this.wireMockServer.resetAll();
+    }
+
+}
