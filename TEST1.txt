@@ -1,0 +1,192 @@
+package com.albertsons.cartservice;
+
+import com.albertsons.cartservice.controller.CartController;
+import com.albertsons.cartservice.persistence.CartRepo;
+import com.albertsons.cartservice.resources.constants.CartConstants;
+import com.albertsons.cartservice.resources.model.AddItemResponse;
+import com.albertsons.cartservice.resources.model.Cart;
+import com.albertsons.cartservice.resources.model.Item;
+import com.albertsons.cartservice.resources.model.ItemInfo;
+import com.albertsons.cartservice.services.implementation.CartServiceImpl;
+import com.albertsons.cartservice.services.interfaces.CartService;
+import com.albertsons.cartservice.validation.CartServiceValidation;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.eclipse.jetty.server.Response;
+import org.junit.Assert;
+import org.junit.Before;
+import org.junit.Test;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.Mockito;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.web.client.RestTemplate;
+
+import java.io.IOException;
+import java.net.URI;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.Mockito.*;
+import static org.mockito.Mockito.when;
+
+@SpringBootTest
+public class CartServiceApplicationTests {
+
+    private CartRepo cartRepo;
+
+    private RestTemplate restTemplate;
+
+    private HttpEntity mockHttpEntity;
+
+    private CartServiceValidation cartServiceValidation;
+    private ItemInfo itemInfo;
+    private Optional<Cart> cart;
+    private Cart mockCart;
+
+    private Item item;
+
+    private AddItemResponse mockAddItemResponse;
+    private AddItemResponse response;
+    private Item existingItem;
+
+    CartServiceImpl cartServiceImpl;
+    ResponseEntity<String> storeResponse;
+
+    String mockResponse = "";
+    @Mock
+    private CartServiceImpl mockCartServiceImpl;
+    private static final String ITEM_ID = "0000000005409";
+    private static final String STORE_ID = "9879";
+    private static final String GUID = "200-160-1540234454991";
+    private static final String SUCCESS_CODE = "2000";
+    private static final String ERROR_CODE = "4004";
+    private static final String MESSAGE_ITEM_ADDED_SUCCESSFULLY = "Item Added to Cart Successfully";
+    private static final String DB_ERROR = "database_error";
+    private static final String APP = "3pl";
+    private static final String ZERO = "0";
+    private static final String ONE = "1";
+
+
+    @Before
+    public void init() {
+        cartRepo = mock(CartRepo.class);
+        mockCart = mock(Cart.class);
+        itemInfo = mock(ItemInfo.class);
+        item = mock(Item.class);
+        cart = Optional.ofNullable(null);
+        restTemplate = mock(RestTemplate.class);
+        mockHttpEntity = mock(HttpEntity.class);
+        cartServiceImpl = new CartServiceImpl(restTemplate, cartRepo, cartServiceValidation);
+        storeResponse = mock(ResponseEntity.class);
+
+        cartServiceValidation = mock(CartServiceValidation.class);
+        mockAddItemResponse = mock(AddItemResponse.class);
+        ReflectionTestUtils.setField(cartServiceImpl, "restTemplate", restTemplate);
+        ReflectionTestUtils.setField(cartServiceImpl, "cartRepo", cartRepo);
+        ReflectionTestUtils.setField(cartServiceImpl, "cartServiceValidation", cartServiceValidation);
+//        cartServiceImpl = new CartServiceImpl(restTemplate, cartRepo, cartServiceValidation);
+        CartServiceImpl serviceImpl = new CartServiceImpl(restTemplate, cartRepo, cartServiceValidation);
+        mockCartServiceImpl = Mockito.spy(serviceImpl);
+    }
+
+    @Test
+    public void createNewCartTest() {
+        String resourceUrl = CartConstants.RETAIL_BASE_URL + CartConstants.CHECK_STORE_HR + Integer.parseInt(STORE_ID, 10);
+//        AddItemResponse addItemResponse = new AddItemResponse("0", "4004", "Item Added to Cart Successfully", "", "");
+        ItemInfo itemInfo = new ItemInfo("1", "000835", "upca", "2354", 892763119d, 982617762d, 30, false, false, "active", 23, 20, null, null, null);
+        Mockito.doReturn(null).when(cartServiceValidation).validateAddItemRequest(STORE_ID, GUID, APP, itemInfo);
+        Mockito.when(cartRepo.findByGuidAndStoreId(GUID, STORE_ID)).thenReturn(Optional.ofNullable(null));
+        Mockito.doReturn(null).when(mockCartServiceImpl).isItemExist(itemInfo, cart);
+        when(restTemplate.exchange(resourceUrl, HttpMethod.GET, mockHttpEntity, String.class)).thenReturn(storeResponse);
+        Mockito.when(cartRepo.insert(mockCart)).thenReturn(mockCart);
+        AddItemResponse mockAddItemResponse = cartServiceImpl.addItemToCart(STORE_ID, GUID, APP, itemInfo);
+        System.out.println(mockAddItemResponse.getAck());
+        System.out.println(mockAddItemResponse);
+        assertEquals(ZERO, mockAddItemResponse.getAck());
+        assertEquals(CartConstants.MESSAGE_ITEM_CREATED_SUCCESSFULLY, mockAddItemResponse.getMessage());
+        assertEquals(CartConstants.SUCCSEEFULLY_ADDED_CODE, mockAddItemResponse.getCode());
+    }
+
+    @Test
+    public void updateItemToCartTest() {
+        ItemInfo itemInfo = new ItemInfo("1", "000835", "upca", "2354", 892763119d, 982617762d, 600, false, false, "active", 23, 20, null, null, null);
+        itemInfo.setItem_id("54320000");
+        itemInfo.setUpc_type("upca");
+        AddItemResponse response = new AddItemResponse("0", "2000", "Item Added to Cart Successfully", "", "");
+        ArrayList<Item> item = new ArrayList<>();
+        Item existingItem = new Item("1", "000835", 892763119d, 982617762d, "upca", "2354", 600, "active", false, false, 23, 20, 10, null, null, null);
+        existingItem.setItem_id("4563");
+        existingItem.setStatus("active");
+        item.add(existingItem);
+        Cart existingCart = new Cart("0833625", 65377628d, GUID, STORE_ID, item, 8, "17636", 30, 100, "Completed", "2", "10");
+//        Mockito.doReturn(null).when(cartServiceValidation).validateAddItemRequest(STORE_ID, GUID, APP, itemInfo);
+//        Mockito.when(mockCartServiceImpl.isItemExist(itemInfo, cart)).thenReturn(existingItem);
+//        Mockito.doReturn(existingItem).when(mockCartServiceImpl).isItemExist(itemInfo, cart);
+        Mockito.when(cartRepo.save(mockCart)).thenReturn(mockCart);
+//        Mockito.doReturn(item).when(mockCartServiceImpl).isItemExist(itemInfo, cart);
+//        Mockito.doReturn(mockAddItemResponse).when(mockCartServiceImpl).updateExistingItemInCart(itemInfo, mockCart);
+        Mockito.when(cartRepo.findByGuidAndStoreId(GUID, STORE_ID)).thenReturn(Optional.of(existingCart));
+        Mockito.when(cartServiceValidation.validateAddItemRequest(STORE_ID, GUID, APP, itemInfo)).thenReturn(response);
+//        when(mockAddItemResponse.getAck()).thenReturn(ZERO);
+//        when(mockAddItemResponse.getCode()).thenReturn(SUCCESS_CODE);
+//        when(mockAddItemResponse.getMessage()).thenReturn(MESSAGE_ITEM_ADDED_SUCCESSFULLY);
+        mockAddItemResponse = cartServiceImpl.addItemToCart(STORE_ID, GUID, APP, itemInfo);
+        assertEquals(ZERO, mockAddItemResponse.getAck());
+        assertEquals(SUCCESS_CODE, mockAddItemResponse.getCode());
+        assertEquals(MESSAGE_ITEM_ADDED_SUCCESSFULLY, mockAddItemResponse.getMessage());
+    }
+
+    @Test
+    public void itemLimitErrorTest() {
+        Assert.assertEquals("item limit reached. Complete your order or remove existing items in your cart.", cartServiceImpl.itemLimitError().getMessage());
+    }
+
+    @Test
+    public void itemAddedSuccessfullyTest() {
+        Assert.assertEquals("Item Added to Cart Successfully", cartServiceImpl.itemAddedSuccessfully().getMessage());
+    }
+
+    @Test
+    public void itemCreatedSuccessfullyTest() {
+        Assert.assertEquals("Cart created and Item added to Cart Successfully", cartServiceImpl.itemCreatedSuccessfully().getMessage());
+    }
+
+    @Test
+    public void itemUpdatedSuccessfullyTest() {
+        Assert.assertEquals("Successfully updated Item", cartServiceImpl.itemUpdatedSuccessfully().getMessage());
+    }
+
+    @Test
+    public void addItemToCartTest() {
+        AddItemResponse addItemResponse = new AddItemResponse("1", "4004", "Something went wrong. Please try again.", "database_error", "SNG Backend");
+        Mockito.doReturn(null).when(cartServiceValidation).validateAddItemRequest(STORE_ID, GUID, APP, itemInfo);
+        Assert.assertEquals(addItemResponse.getMessage(), cartServiceImpl.addItemToCart(STORE_ID, GUID, APP, itemInfo).getMessage());
+    }
+
+    @Test
+    public void addItemToCartWithValidationTest() {
+        AddItemResponse addItemResponse = new AddItemResponse("TestAck", "TestCode", "TestMessage", "TestVendor", "TestCategory");
+        Mockito.doReturn(addItemResponse).when(cartServiceValidation).validateAddItemRequest(STORE_ID, GUID, APP, itemInfo);
+        Assert.assertEquals(addItemResponse, cartServiceImpl.addItemToCart(STORE_ID, GUID, APP, itemInfo));
+    }
+
+    @Test
+    public void addItemToCartWithIncorrectValidationTest() {
+        Optional<Cart> cartOne = Optional.of(new Cart("TestID", 1646313494884d, "200-160-1540234454991", "TestStoreId", null, 1, "TestOrder_id", 3, 40, "TestTrsnsaction_status", "TestTesrminal_number", "TestTransaction_id"));
+        Item item = new Item("TestId", "Testitem_id", 1646309727239d,
+                1646313494884d, "TestUpc_type", "TestScan_code", 0, "TestStatus", false, false, 30, 25, 1, null, null, null);
+        AddItemResponse addItemResponse = new AddItemResponse("1", "4004", "Something went wrong. Please try again.", "database_error", "SNG Backend");
+        Mockito.doReturn(null).when(cartServiceValidation).validateAddItemRequest(STORE_ID, GUID, APP, itemInfo);
+        Mockito.doReturn(cartOne).when(cartRepo).findByGuidAndStoreId(STORE_ID, GUID);
+        Assert.assertEquals(addItemResponse.getCode(), cartServiceImpl.addItemToCart(STORE_ID, GUID, APP, itemInfo).getCode());
+    }
+}
