@@ -1,0 +1,228 @@
+package com.albertsons.itemlookup.aspect;
+
+import lombok.extern.slf4j.Slf4j;
+import org.aspectj.lang.ProceedingJoinPoint;
+import org.aspectj.lang.annotation.*;
+import org.springframework.stereotype.Component;
+
+import java.util.Arrays;
+
+@Aspect
+@Slf4j
+@Component
+public class LoggingAspect {
+
+    /**
+     * Method is executed before service classes
+     */
+    @Before("execution(* com.albertsons.itemlookup.services.*.*.*(..))")
+    public void logBeforeService() {
+        log.debug(":::: Before executing the method in service .....::::");
+    }
+
+    /**
+     * Method is executed before controller class
+     */
+    @Before("execution(* com.albertsons.itemlookup.controller.*.*(..))")
+    public void logBeforeController() {
+        log.debug(":::: Before executing the method in controller.....::::");
+    }
+
+    /**
+     * Method is executed before persistence class
+     */
+    @Before("execution(* com.albertsons.itemlookup.persistence.*.*.*(..))")
+    public void logBeforePersistence() {
+        log.debug(":::: Before executing the method in persistence.....::::");
+    }
+
+    @Pointcut("within(@org.springframework.stereotype.Repository *)" +
+            " || within(@org.springframework.stereotype.Service *)" +
+            " || within(@org.springframework.web.bind.annotation.RestController *)")
+    public void springBeanPointcut() {
+        // Point cut for Spring beans
+    }
+
+    @Pointcut(" within(com.albertsons.itemlookup.services..*)" +
+            " || within(com.albertsons.itemlookup.controller..*)" +
+            " || within(com.albertsons.itemlookup.persistence..*)" +
+            " || within(com.albertsons.itemlookup.gateway..*)"
+    )
+    public void applicationPackagesPointcut() {
+        // Pointcut for packages in application
+    }
+
+    /**
+     * This method logs the exception
+     *
+     * @param e for exceptions
+     */
+    @AfterThrowing(pointcut = "applicationPackagesPointcut() && springBeanPointcut()", throwing = "e")
+    public void logAfterThrowing(Throwable e) {
+        log.error(":::: Exception occurred: {}", e.toString());
+    }
+
+    /**
+     * Advice that logs when a method is entered and exited.
+     *
+     * @param proceedingJoinPoint join point for advice
+     * @return logs
+     * @throws Throwable throws IllegalArgumentException
+     */
+    @Around("applicationPackagesPointcut() && springBeanPointcut()")
+    public Object logAround(ProceedingJoinPoint proceedingJoinPoint) throws Throwable {
+        if (log.isDebugEnabled()) {
+            log.debug(":::: Enter class: {}, Method: {}() with argument[s] = {}", proceedingJoinPoint.getSignature().getDeclaringTypeName(),
+                    proceedingJoinPoint.getSignature().getName(), Arrays.toString(proceedingJoinPoint.getArgs()));
+        }
+        try {
+            Object result = proceedingJoinPoint.proceed();
+            if (log.isDebugEnabled()) {
+                log.debug(":::: Exit class: {}, Method: {}() with result = {}", proceedingJoinPoint.getSignature().getDeclaringTypeName(),
+                        proceedingJoinPoint.getSignature().getName(), result);
+            }
+            return result;
+        } catch (IllegalArgumentException e) {
+            log.error(":::: Illegal argument: {} in {}.{}()", Arrays.toString(proceedingJoinPoint.getArgs()),
+                    proceedingJoinPoint.getSignature().getDeclaringTypeName(), proceedingJoinPoint.getSignature().getName());
+            throw e;
+        }
+    }
+
+}
+------------------------
+POM File
+
+
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>2.5.6</version>
+        <relativePath/> <!-- lookup parent from repository -->
+    </parent>
+    <groupId>com.albertsons.itemlookup</groupId>
+    <artifactId>item-lookup</artifactId>
+    <version>1.0-SNAPSHOT</version>
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-aop</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-logging</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.github.tomakehurst</groupId>
+            <artifactId>wiremock-standalone</artifactId>
+            <version>2.6.0</version>
+        </dependency>
+        <dependency>
+            <groupId>com.github.tomakehurst</groupId>
+            <artifactId>wiremock-jre8</artifactId>
+            <version>2.32.0</version>
+            <scope>compile</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.rest-assured</groupId>
+            <artifactId>rest-assured</artifactId>
+            <version>4.3.3</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.googlecode.json-simple</groupId>
+            <artifactId>json-simple</artifactId>
+            <version>1.1</version>
+        </dependency>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <version>1.18.22</version>
+            <scope>provided</scope>
+        </dependency>
+        <dependency>
+            <groupId>commons-lang</groupId>
+            <artifactId>commons-lang</artifactId>
+            <version>2.4</version>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-mongodb</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.github.tomakehurst</groupId>
+            <artifactId>wiremock-jre8</artifactId>
+            <version>2.32.0</version>
+            <scope>compile</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-logging</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.testng</groupId>
+            <artifactId>testng</artifactId>
+            <version>RELEASE</version>
+            <scope>compile</scope>
+        </dependency>
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.rest-assured</groupId>
+            <artifactId>rest-assured</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.jetbrains</groupId>
+            <artifactId>annotations</artifactId>
+            <version>RELEASE</version>
+            <scope>compile</scope>
+        </dependency>
+
+    </dependencies>
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+
+            </plugin>
+        </plugins>
+
+    </build>
+    <properties>
+        <maven.compiler.source>1.8</maven.compiler.source>
+        <maven.compiler.target>1.8</maven.compiler.target>
+    </properties>
+
+</project>
